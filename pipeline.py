@@ -7,94 +7,82 @@ import uuid
 from sentence_transformers import SentenceTransformer
 # import psycopg2
 
-# Substitute for sql for now
-# Key by arxiv ID
+# Config Variables
+BASE_URL = 'http://export.arxiv.org/api/query?'
+MODEL = SentenceTransformer("all-MiniLM-L6-V2")
+CATEGORIES = ["cs.AI", "cs.LG", "cs.CV"]
+MAX_RESULTS = 10
+
+CHUNK_SIZE = 400
+CHUNK_OVERLAP = 50
+
+# Data models
+class PaperMetaData:
+    arxiv_id: str
+    title: str
+    author: str
+    authors: list[str]
+    categories: list[str]
+    summary: str
+    published: int
+    pdf_url: str
+
+class Chunk:
+    arxiv_id: str
+    chunk_id: str
+    chunk_index: int
+    chunk_text: str
+    token_count: int
+
+# Placeholder for postgres
 papers = {}
 chunks = {}
 vector_db = {}
 
 
-base_url = 'http://export.arxiv.org/api/query?'
-
-def getPapers(topic, max_results):
-    link = base_url + 'search_query=cat:%s&start=%i&max_results=%i' % (topic, 0, max_results)
-    response = urllib.request.urlopen(link).read()
-
-    # Extract metadata and download pdf
-
-    feed = feedparser.parse(response)
-
-    # Loop through each paper
-    for paper in feed.entries:
-        # TODO: replace with postgres
-        papers[paper.id] = {
-            "author": paper.author,
-            "authors": paper.authors,
-            "title": paper.title,
-            "published": paper.published,
-            "summary": paper.summary,
-            "status": "pending"
-        }
-        assert(paper.links[1].title == "pdf")
-
-        pdf_link = paper.links[1].href
-        response = requests.get(pdf_link, stream=True)
-        response.raise_for_status()
-
-        pdf = pymupdf.open(stream=response.content, filetype="pdf")
-
-        full_text = []
-        for page in pdf:
-            full_text.append(page.get_text())
-        
-        paper_chunks = chunkPaper(full_text)
-
-        for idx, chunk in enumerate(paper_chunks):
-            chunk_id = uuid.uuid4()
-
-            model = SentenceTransformer("all-MiniLM-L6-V2")
-            embedded_chunk = model.encode(chunk)
-
-            chunks[chunk_id] = {
-                "arxiv_id": paper.id, # Foreign Key, one to many
-                "chunk_index": idx,
-                "chunk_text": chunk,
-                "token_count": len(chunk),
-                "embedded": embedded_chunk
-            }
-    return true
-
-def chunkPaper(full_text, chunk_size=400, overlap=50):
-    # Tokenize by whitespace
-    tokens = re.split(r"\s+", full_text)
-    chunks = []
+# def chunkPaper(full_text, chunk_size=400, overlap=50):
+#     # Tokenize by whitespace
+#     tokens = re.split(r"\s+", full_text)
+#     chunks = []
     
-    i = 0
-    while i < len(tokens):
-        chunk = tokens[i : i + chunk_size]
-        if not chunk:
-            break
-        chunks.append(chunk)
-        i += (chunk_size - overlap)
-    return chunks
+#     i = 0
+#     while i < len(tokens):
+#         chunk = tokens[i : i + chunk_size]
+#         if not chunk:
+#             break
+#         chunks.append(chunk)
+#         i += (chunk_size - overlap)
+#     return chunks
+
+def fetchMetaData():
+    for cat in CATEGORIES:
+        link = BASE_URL + 'search_query=cat:%s&start=%i&max_results=%i&sortBy=submittedDate&sortOrder=descending' % (cat, 0, MAX_RESULTS)
+        response = urllib.request.urlopen(link).read()
+        feed = feedparser.parse(response)
+        for paper in feed.entries:
+            urls = [link for link in paper.links if link.title == "pdf"]
+            # Ensure that a pdf link exists here
+            if not urls:
+                continue
+            pdf_url = urls[0].href
+            
+            metadata = PaperMetaData(
+                arxiv_id = paper.id,
+                title=e.title,
+                authors=e.authors,
+                categories=paper.categories,
+                published=paper.published,
+                summary=paper.summary,
+                pdf_url=pdf_url,
+            )
+
+            papers[cat].append(metadata)
+
 
 def pipeline():
-    # 1. Fetch 
-    # Get 3 topics for now
-
-    # cs.AI
-    csAI = getPapers("cs.AI", 1)
-
-    # cs.LG
-    csLG = getPapers("cs.LG", 1)
-
-    # cs.CV
-    csCV = getPapers("cs.CV", 1)
-
+    print("Fetching metadata")
+    fetchMetaData()
 
 
 if __name__ == "__main__":
-    # conn = psycopg2.connect()
-    # cursor = conn.cursor()
-    # cursor.execute("CREATE TABLE IF NOT EXISTS papers")
     pipeline()
