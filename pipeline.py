@@ -7,6 +7,8 @@ import uuid
 from dataclasses import dataclass
 from typing import List, Dict
 from sentence_transformers import SentenceTransformer
+import asyncio
+import aiohttp
 # import psycopg2
 
 # Config Variables
@@ -97,12 +99,56 @@ def fetchMetaData() -> None:
 
             papers[cat].append(metadata)
 
+async def download_all_pdfs():
+    download_queue = asyncio.Queue()
 
-def pipeline() -> None:
+    async def download_pdf(session: aiohttp.ClientSession, meta: PaperMetaData):
+        try:
+            async with session.get(url=meta.pdf_url) as response:
+                resp = await response.read()
+                await download_queue.put((meta, resp))
+                print(f"Successfully fetched pdf {meta.pdf_url}")
+        except Exception as e:
+            print(f"Unable to get url {meta.pdf_url} with error {e}")
+
+
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            download_pdf(session, paper)
+            for cat in CATEGORIES
+            for paper in papers[cat]
+        ]
+
+        await asyncio.gather(*tasks)
+        # Close the channel
+        await download_queue.put(None)
+
+    return download_queue
+
+async def pipeline() -> None:
     print("Fetching metadata")
     fetchMetaData()
     print("Done fetching metadata")
 
+    # Don't wait for pdfs to finish downloading
+    print("Fetching pdfs")
+    pdfs_to_download = await download_all_pdfs()
+    print("Done fetching pdfs")
+
+
+# Data pipeline
+## Fetch metadata
+## Download pdfs and obtain text
+### Asyncronous, async fetch since it's network i/o
+## Chunk pdfs (CPU heavy -> threaded pool)
+### Send through queue as well
+## Embed (use gpu?)
+
+## Figure out what kind of data shape I need for fast search
+
+# download (async) -> download_queue -> chunk with threaded pool, pulling from download_queeu like a channel -> queue -> embed (with GPU?) -> store into DB
+
+
 
 if __name__ == "__main__":
-    pipeline()
+    asyncio.run(pipeline())
