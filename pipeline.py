@@ -100,14 +100,17 @@ def fetchMetaData() -> None:
             papers[cat].append(metadata)
 
 async def download_all_pdfs():
-    download_queue = asyncio.Queue()
+    download_queue = asyncio.Queue(maxsize=50)
+
+    sem = asyncio.Semaphore(10)
 
     async def download_pdf(session: aiohttp.ClientSession, meta: PaperMetaData):
         try:
-            async with session.get(url=meta.pdf_url) as response:
-                resp = await response.read()
-                await download_queue.put((meta, resp))
-                print(f"Successfully fetched pdf {meta.pdf_url}")
+            async with sem:
+                async with session.get(url=meta.pdf_url) as response:
+                    resp = await response.read()
+                    await download_queue.put((meta, resp))
+                    print(f"Successfully fetched pdf {meta.pdf_url} with category {meta.categories[0]}")
         except Exception as e:
             print(f"Unable to get url {meta.pdf_url} with error {e}")
 
