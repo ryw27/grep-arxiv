@@ -1,9 +1,11 @@
-import urllib
+import urllib.request
 import feedparser
 import pymupdf
 import requests
 import re
 import uuid
+from dataclasses import dataclass
+from typing import List, Dict
 from sentence_transformers import SentenceTransformer
 # import psycopg2
 
@@ -17,16 +19,18 @@ CHUNK_SIZE = 400
 CHUNK_OVERLAP = 50
 
 # Data models
+
+@dataclass
 class PaperMetaData:
     arxiv_id: str
     title: str
-    author: str
-    authors: list[str]
-    categories: list[str]
+    authors: List[str]
+    categories: List[str]
     summary: str
-    published: int
+    published: str  # arXiv 'published' field is an ISO 8601 date string, not int
     pdf_url: str
 
+@dataclass
 class Chunk:
     arxiv_id: str
     chunk_id: str
@@ -35,9 +39,9 @@ class Chunk:
     token_count: int
 
 # Placeholder for postgres
-papers = {}
-chunks = {}
-vector_db = {}
+papers: Dict[str, List["PaperMetaData"]] = {cat: [] for cat in CATEGORIES}
+chunks: Dict[str, List["Chunk"]] = {}
+vector_db: Dict[str, List[float]] = {}
 
 
 # def chunkPaper(full_text, chunk_size=400, overlap=50):
@@ -54,34 +58,50 @@ vector_db = {}
 #         i += (chunk_size - overlap)
 #     return chunks
 
-def fetchMetaData():
+def fetchMetaData() -> None:
     for cat in CATEGORIES:
-        link = BASE_URL + 'search_query=cat:%s&start=%i&max_results=%i&sortBy=submittedDate&sortOrder=descending' % (cat, 0, MAX_RESULTS)
+        link = (
+            BASE_URL
+            + 'search_query=cat:%s&start=%i&max_results=%i&sortBy=submittedDate&sortOrder=descending'
+            % (cat, 0, MAX_RESULTS)
+        )
         response = urllib.request.urlopen(link).read()
         feed = feedparser.parse(response)
         for paper in feed.entries:
-            urls = [link for link in paper.links if link.title == "pdf"]
+            links = getattr(paper, "links", [])
+            urls = [link for link in links if getattr(link, "title", "") == "pdf"]
             # Ensure that a pdf link exists here
             if not urls:
                 continue
-            pdf_url = urls[0].href
+
+            link = urls[0]
+            href = link.get("href") 
+            if not href:
+                continue
+            
+            pdf_url = str(href)
+
+            authors = [a.name for a in getattr(paper, "authors", [])]
+
+            paper_categories = [str(tag["term"]) for tag in paper.tags] 
             
             metadata = PaperMetaData(
-                arxiv_id = paper.id,
-                title=e.title,
-                authors=e.authors,
-                categories=paper.categories,
-                published=paper.published,
-                summary=paper.summary,
+                arxiv_id=str(getattr(paper, "id", "")),
+                title=str(getattr(paper, "title", "")),
+                authors=authors,
+                categories=paper_categories,
+                published=str(getattr(paper, "published", "")),
+                summary=str(getattr(paper, "summary", "")),
                 pdf_url=pdf_url,
             )
 
             papers[cat].append(metadata)
 
 
-def pipeline():
+def pipeline() -> None:
     print("Fetching metadata")
     fetchMetaData()
+    print("Done fetching metadata")
 
 
 if __name__ == "__main__":

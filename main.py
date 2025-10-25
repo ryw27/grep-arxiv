@@ -1,5 +1,6 @@
+from pipeline import pipeline
 
-def main():
+def main() -> None:
     print("Starting")
     pipeline()
     print("Done")
