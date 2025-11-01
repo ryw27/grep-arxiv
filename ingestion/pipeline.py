@@ -41,7 +41,7 @@ papers: Dict[str, List["PaperMetaData"]] = {cat: [] for cat in CATEGORIES}
 chunks: Dict[str, List["Chunk"]] = {}
 vector_db: Dict[str, List[float]] = {}
 
-class PaperFetcher:
+class PaperChunker:
     def __init__(self):
         self.client = arxiv.Client(
             page_size=100,
@@ -265,8 +265,6 @@ class PaperFetcher:
 
 # download (async) -> download_queue -> chunk with threaded pool, pulling from download_queeu like a channel -> queue -> embed (with GPU?) -> store into DB
 
-
-
 if __name__ == "__main__":
-    paperfetcher = PaperFetcher()
-    asyncio.run(paperfetcher.run())
+    paperchunker = PaperChunker()
+    asyncio.run(paperchunker.run())
