@@ -80,7 +80,7 @@ class PaperFetcher:
                 metadata = PaperMetaData(
                     arxiv_id=paper.entry_id,
                     title=paper.title,
-                    authors=paper.authors,
+                    authors=[author.name for author in paper.authors],
                     categories=paper.categories,
                     published=paper.published,
                     summary=paper.summary,

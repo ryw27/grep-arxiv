@@ -9,7 +9,7 @@ import datetime
 class PaperMetaData:
     arxiv_id: str
     title: str
-    authors: List[arxiv.Result.Author]
+    authors: List[str]
     categories: List[str]
     summary: str
     published: datetime.datetime
