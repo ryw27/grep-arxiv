@@ -6,6 +6,7 @@ import uuid
 from typing import List, Dict 
 from models import PaperMetaData, Chunk
 import arxiv
+import os
 
 from sentence_transformers import SentenceTransformer
 import asyncio
@@ -72,13 +73,11 @@ class PaperFetcher:
                 max_results=MAX_RESULTS,
                 sort_by=arxiv.SortCriterion.SubmittedDate
             )
-
             for paper in self.client.results(search):
                 if not paper.pdf_url:
                     continue
-
                 metadata = PaperMetaData(
-                    arxiv_id=paper.entry_id,
+                    arxiv_id=paper.get_short_id(),
                     title=paper.title,
                     authors=[author.name for author in paper.authors],
                     categories=paper.categories,
@@ -92,28 +91,42 @@ class PaperFetcher:
     async def download_all_pdfs(self) -> None:
         
         sem = asyncio.Semaphore(DOWNLOAD_CONCURRENCY)
+        os.makedirs(f"./papers", exist_ok=True)
 
-        async def download_pdf(meta: PaperMetaData):
-            try:
-                async with sem:
-                    # async with session.get(url=meta.pdf_url) as response:
-                    #     resp = await response.read()
-                    search = arxiv.Search(id_list=[meta.arxiv_id])
-                    paper = next(self.client.results(search))
-                    paper.download_pdf(dirpath="./papers", filename=f"{meta.arxiv_id}.pdf")
+        async def write_file(path: str, data: bytes) -> None:
+            def _write():
+                with open(path, "wb") as f:
+                    f.write(data)
+            await asyncio.to_thread(_write)
 
-                    path = f"./papers/{meta.arxiv_id}.pdf"
-                    await self.download_queue.put((meta, path))
-                    print(f"Successfully fetched pdf {meta.pdf_url} with category {meta.categories[0]}")
-            except Exception as e:
-                print(f"Unable to get url {meta.pdf_url} with error: {e}")
+        async def download_pdf(session: aiohttp.ClientSession, meta: PaperMetaData):
+            url = meta.pdf_url
+            filename = f"./papers/{meta.arxiv_id}.pdf"
+            attempts = 0
+            while attempts < 3:
+                attempts += 1
+                try:
+                    async with sem:
+                        async with session.get(url) as response:
+                            if response.status != 200:
+                                raise RuntimeError(f"status {response.status}")
+                            # Read all bytes; avoids blocking the loop on incremental sync writes
+                            data = await response.read()
+                            await write_file(filename, data)
+                            await self.download_queue.put((meta, filename))
+                            print(f"Successfully fetched pdf {url} with category {meta.categories[0]}")
+                            return
+                except Exception as e:
+                    if attempts >= 3:
+                        print(f"Unable to download {url} after {attempts} attempts: {e}")
+                    else:
+                        await asyncio.sleep(1.0 * attempts)
 
-
-        timeout = aiohttp.ClientTimeout(total=180, sock_connect=30, sock_read=150)
+        timeout = aiohttp.ClientTimeout(total=300, sock_connect=30, sock_read=240)
         connector = aiohttp.TCPConnector(limit=DOWNLOAD_CONCURRENCY, limit_per_host=DOWNLOAD_CONCURRENCY)
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector):
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             tasks = [
-                download_pdf(paper)
+                download_pdf(session, paper)
                 for cat in CATEGORIES
                 for paper in papers[cat]
             ]
@@ -135,7 +148,7 @@ class PaperFetcher:
             with fitz.open(filename=filepath) as doc:
                 for page in doc:
                     full_text.append(page.get_text())
-            
+
             tokens = re.split(r"\s+", "\n".join(full_text))
             pdf_chunks = []
 
@@ -180,6 +193,9 @@ class PaperFetcher:
                         chunk_text=" ".join(chunk),
                         token_count=len(chunk)
                     )))
+
+                # Delete the PDF after chunking
+                os.remove(pdf)
 
 
     async def embedChunks(self) -> None:
