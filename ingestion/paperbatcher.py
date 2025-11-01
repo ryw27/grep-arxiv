@@ -268,3 +268,5 @@ class PaperChunker:
 if __name__ == "__main__":
     paperchunker = PaperChunker()
     asyncio.run(paperchunker.run())
+    for key, val in papers.items():
+        print("Key: ", key, "length: ", len(val))
