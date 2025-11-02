@@ -2,6 +2,7 @@ from sentence_transformers import SentenceTransformer
 import fitz
 import re
 from typing import List
+import os
 
 
 class PaperProcessor:
@@ -20,6 +21,8 @@ class PaperProcessor:
 
         embedded_chunks = self._embed_chunks(text_chunks, cuda)
         print(f"Successfully chunked/embedded {pdf_path}")
+
+        os.remove(pdf_path)
 
         return text_chunks, embedded_chunks
 
