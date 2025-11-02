@@ -11,14 +11,15 @@ class PaperProcessor:
 
         self.model = SentenceTransformer("all-MiniLM-L6-V2")
 
-    async def process_pdf(self, filename: str, dirpath: str = "./papers", cuda: bool = False):
-        pdf_path = dirpath + filename
+    async def process_pdf(self, filename: str, cuda: bool = False):
+        pdf_path = filename
 
         full_text = await self._get_pdf_text(pdf_path)
 
         text_chunks = await self._chunk_pdf(full_text)
 
-        embedded_chunks = await self._embed_chunks(text_chunks, cuda)
+        embedded_chunks = self._embed_chunks(text_chunks, cuda)
+        print(f"Successfully chunked/embedded {pdf_path}")
 
         return text_chunks, embedded_chunks
 
@@ -41,8 +42,17 @@ class PaperProcessor:
             
             pdf_chunks.append(chunk)
             i += (self.chunk_size - self.chunk_overlap)
-
         return pdf_chunks
 
-    def _embed_chunks(self, chunkText: List[str], cuda: bool = False):
-        return self.model.encode(chunkText, convert_to_numpy=True, normalize_embeddings=True).tolist()
+    def _embed_chunks(self, chunkText: List[str], cuda: bool):
+        # If cuda is requested and available, move model to cuda
+        if cuda and hasattr(self.model, 'to'):
+            self.model = self.model.to('cuda')
+        elif hasattr(self.model, 'to'):
+            self.model = self.model.to('cpu')
+        return self.model.encode(
+            chunkText,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            device='cuda' if cuda else 'cpu'
+        ).tolist()
