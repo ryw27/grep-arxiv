@@ -3,12 +3,12 @@
 # import fitz 
 # import re
 # import uuid
-from typing import List, Dict 
-from models import PaperMetaData, Chunk
+from models import Paper 
+from typing import List
 import arxiv
 import os
 
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
 import asyncio
 import aiohttp
 # from concurrent.futures import ThreadPoolExecutor
@@ -17,13 +17,13 @@ import aiohttp
 # import psycopg2
 
 # Config Variables
-BASE_URL = 'http://export.arxiv.org/api/query?'
-MODEL = SentenceTransformer("all-MiniLM-L6-V2")
-CATEGORIES = ["cs.AI", "cs.LG", "cs.CV"]
-MAX_RESULTS = 10 
-MAX_DOWNLOAD_Q = 50
-MAX_CHUNK_Q = 200
-MAX_THREAD_WORKERS = 8
+# BASE_URL = 'http://export.arxiv.org/api/query?'
+# MODEL = SentenceTransformer("all-MiniLM-L6-V2")
+# CATEGORIES = ["cs.AI", "cs.LG", "cs.CV"]
+# MAX_RESULTS = 10 
+# MAX_DOWNLOAD_Q = 50
+# MAX_CHUNK_Q = 200
+# MAX_THREAD_WORKERS = 8
 
 # Concurrency tuning (derived from CPU)
 # DOWNLOAD_CONCURRENCY = 10
@@ -35,10 +35,10 @@ MAX_THREAD_WORKERS = 8
 
 # Placeholder for postgres
 # papers: Dict[str, List[tuple("PaperMetaData", arxiv.Result)] = {cat: [] for cat in CATEGORIES}
-papers = {cat: [] for cat in CATEGORIES}
+# papers = {cat: [] for cat in CATEGORIES}
 
-chunks: Dict[str, List["Chunk"]] = {}
-vector_db: Dict[str, List[float]] = {}
+# chunks: Dict[str, List["Chunk"]] = {}
+# vector_db: Dict[str, List[float]] = {}
 
 class PaperFetcher:
     def __init__(self):
@@ -53,7 +53,9 @@ class PaperFetcher:
 
     async def fetch_pdfs(self, query: str, max_results: int = 10):
         papers = self.fetch_meta_data(query, max_results)
-        await self.download_all_pdfs(papers)
+        filenames = await self.download_all_pdfs(papers)
+
+        return filenames
         # pdfs_to_download = asyncio.create_task(self.download_all_pdfs())
         # pdf_chunks = asyncio.create_task(self.chunkPDFs())
         # embeddings_task = asyncio.create_task(self.embedChunks())
@@ -61,10 +63,10 @@ class PaperFetcher:
         # await asyncio.gather(pdfs_to_download)
         # await asyncio.gather(pdfs_to_download, pdf_chunks, embeddings_task)
     
-    def fetch_meta_data(self, query: str, max_results: int):
+    def fetch_meta_data(self, query: str, max_results: int) -> List[tuple[Paper, arxiv.Result]]:
         search = arxiv.Search(
             query=query,
-            max_results=MAX_RESULTS,
+            max_results=max_results,
             sort_by=arxiv.SortCriterion.SubmittedDate
         )
 
@@ -73,7 +75,7 @@ class PaperFetcher:
             if not paper.pdf_url:
                 continue
 
-            metadata = PaperMetaData(
+            metadata = Paper(
                 arxiv_id=paper.get_short_id(),
                 title=paper.title,
                 authors=[author.name for author in paper.authors],
@@ -112,7 +114,7 @@ class PaperFetcher:
 
         #         papers[cat].append((metadata, paper))
     
-    async def download_all_pdfs(self, papers) -> None:
+    async def download_all_pdfs(self, papers: List[tuple[Paper, arxiv.Result]]) -> List[tuple[str, Paper]]:
         
         # sem = asyncio.Semaphore(DOWNLOAD_CONCURRENCY)
         os.makedirs(f"./papers", exist_ok=True)
@@ -123,7 +125,7 @@ class PaperFetcher:
         #             f.write(data)
         #     await asyncio.to_thread(_write)
 
-        def download_pdf(meta: PaperMetaData, paper: arxiv.Result):
+        def download_pdf(meta: Paper, paper: arxiv.Result) -> str:
             # url = meta.pdf_url
             # url = url.replace("arxiv.org", "export.arxiv.org")
             # print(url)
@@ -131,6 +133,7 @@ class PaperFetcher:
             paper.download_pdf(dirpath="./papers", filename=f"{meta.arxiv_id}.pdf")
 
             print(f"Successfully fetched pdf {paper.title} with category {meta.categories[0]}")
+            return filename
             # await self.download_queue.put((meta, filename))
             # attempts = 0
             # while attempts < 3:
@@ -170,8 +173,11 @@ class PaperFetcher:
         #         await self.download_queue.put(None)
 
         async with aiohttp.ClientSession():
+            filenames = []
             for paper in papers:
-                download_pdf(paper[0], paper[1])
+                filenames.append((download_pdf(paper[0], paper[1]), paper[0]))
+
+        return filenames
         # tasks = [
         #     download_pdf(paper[0], paper[1])
         #     for cat in CATEGORIES
