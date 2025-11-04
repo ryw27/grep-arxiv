@@ -26,8 +26,9 @@ class Chunk:
 
 @dataclass
 class Embedding:
+    embedding_id: UUID
     chunk_id: UUID
-    vector: List[float]
+    embedding: List[float]
 
 # For open search
 @dataclass

@@ -39,7 +39,8 @@ class Pipeline:
 
                 vector_db.append(Embedding(
                     chunk_id=chunk_id,
-                    vector=embed
+                    embedding_id=uuid.uuid4(),
+                    embedding=embed
                 ))
 
 if __name__ == "__main__":
